@@ -24,7 +24,9 @@ package com.hitorro.mongo;
 import com.hitorro.jsontypesystem.JVS;
 import com.hitorro.mongo.codec.JVSCodecConfig;
 import com.hitorro.mongo.codec.JVSCodecProvider;
+import com.hitorro.mongo.iterator.JVSMongoIterator;
 import com.hitorro.mongo.query.JVSQueryBuilder;
+import com.hitorro.mongo.sink.JVSMongoSink;
 import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
 import com.mongodb.client.model.*;
@@ -266,6 +268,93 @@ public class JVSReactiveMongoClient implements AutoCloseable {
      */
     public Mono<Void> dropCollection(String collectionName) {
         return Mono.from(getCollection(collectionName).drop());
+    }
+    
+    // ========== Iterator-based Query Methods ==========
+    
+    /**
+     * Find documents and return as an AbstractIterator.
+     * This allows using all AbstractIterator chaining methods (map, filter, reduce, etc.)
+     * 
+     * @param collectionName Collection to query
+     * @param filter BSON filter
+     * @return Iterator of JVS documents
+     */
+    public JVSMongoIterator findAsIterator(String collectionName, Bson filter) {
+        Flux<JVS> flux = find(collectionName, filter);
+        return new JVSMongoIterator(flux);
+    }
+    
+    /**
+     * Find documents using JVS query and return as an AbstractIterator
+     * 
+     * @param collectionName Collection to query
+     * @param query JVS query object
+     * @return Iterator of JVS documents
+     */
+    public JVSMongoIterator findAsIterator(String collectionName, JVS query) {
+        Flux<JVS> flux = find(collectionName, query);
+        return new JVSMongoIterator(flux);
+    }
+    
+    /**
+     * Find all documents and return as an AbstractIterator
+     * 
+     * @param collectionName Collection to query
+     * @return Iterator of all JVS documents
+     */
+    public JVSMongoIterator findAllAsIterator(String collectionName) {
+        Flux<JVS> flux = findAll(collectionName);
+        return new JVSMongoIterator(flux);
+    }
+    
+    /**
+     * Find documents with custom queue size for iterator buffering
+     * 
+     * @param collectionName Collection to query
+     * @param filter BSON filter
+     * @param queueSize Size of internal buffer queue
+     * @return Iterator of JVS documents
+     */
+    public JVSMongoIterator findAsIterator(String collectionName, Bson filter, int queueSize) {
+        Flux<JVS> flux = find(collectionName, filter);
+        return new JVSMongoIterator(flux, queueSize);
+    }
+    
+    /**
+     * Execute aggregation and return as an AbstractIterator
+     * 
+     * @param collectionName Collection to aggregate
+     * @param pipeline Aggregation pipeline
+     * @return Iterator of aggregation results
+     */
+    public JVSMongoIterator aggregateAsIterator(String collectionName, List<Bson> pipeline) {
+        Flux<JVS> flux = aggregate(collectionName, pipeline);
+        return new JVSMongoIterator(flux);
+    }
+    
+    // ========== Sink Methods ==========
+    
+    /**
+     * Create a sink for writing JVS documents to MongoDB.
+     * Documents are batched for efficient bulk insertion.
+     * 
+     * @param collectionName Target collection
+     * @return Configured sink
+     */
+    public JVSMongoSink createSink(String collectionName) {
+        return new JVSMongoSink(this, collectionName);
+    }
+    
+    /**
+     * Create a sink with custom batch size
+     * 
+     * @param collectionName Target collection
+     * @param batchSize Number of documents per batch
+     * @return Configured sink
+     */
+    public JVSMongoSink createSink(String collectionName, int batchSize) {
+        return new JVSMongoSink(this, collectionName, batchSize);
     }
     
     /**

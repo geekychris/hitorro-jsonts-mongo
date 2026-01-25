@@ -1,0 +1,41 @@
+╔════════════════════════════════════════════════════════════════╗
+║         MongoDB Docker Quick Reference                         ║
+╚════════════════════════════════════════════════════════════════╝
+
+QUICK START (Docker Compose - Recommended):
+  ./start-mongodb.sh              Start MongoDB
+  ./start-mongodb.sh --with-admin Start with web UI (port 8081)
+  ./stop-mongodb.sh               Stop (keep data)
+  ./stop-mongodb.sh --remove-data Stop and delete all data
+
+ALTERNATIVE (Simple Docker):
+  ./docker-mongodb.sh start       Start MongoDB
+  ./docker-mongodb.sh logs        View logs
+  ./docker-mongodb.sh shell       Open MongoDB shell
+  ./docker-mongodb.sh stop        Stop MongoDB
+  ./docker-mongodb.sh remove      Remove everything
+
+CONNECTION STRINGS:
+  No Auth:   mongodb://localhost:27017/testdb
+  With Auth: mongodb://admin:password@localhost:27017/testdb?authSource=admin
+
+JAVA CLIENT:
+  JVSReactiveMongoClient client = JVSReactiveMongoClient.builder()
+      .connectionString("mongodb://localhost:27017")
+      .database("testdb")
+      .build();
+
+WEB ADMIN (when started with --with-admin):
+  URL:      http://localhost:8081
+  Username: admin
+  Password: admin
+
+TROUBLESHOOTING:
+  Port in use:           lsof -i :27017
+  Check if running:      docker ps | grep mongodb
+  View logs:             docker logs hitorro-mongodb
+  Reset everything:      docker-compose down -v
+
+DOCUMENTATION:
+  Full guide: DOCKER.md
+  Agent info: AGENTS.md

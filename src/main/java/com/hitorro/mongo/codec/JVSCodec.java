@@ -63,13 +63,13 @@ public class JVSCodec implements Codec<JVS> {
     @Override
     public JVS decode(BsonReader reader, DecoderContext decoderContext) {
         BsonDocument bsonDoc = new BsonDocumentCodec().decode(reader, decoderContext);
-        JsonNode jsonNode = bsonToJsonNode(bsonDoc);
-        return new JVS(jsonNode);
+        JVS jvs = bsonToJVS(bsonDoc);
+        return jvs;
     }
     
     @Override
     public void encode(BsonWriter writer, JVS value, EncoderContext encoderContext) {
-        BsonDocument bsonDoc = jsonNodeToBson(value.getJsonNode());
+        BsonDocument bsonDoc = jsonNodeToBson(value);
         new BsonDocumentCodec().encode(writer, bsonDoc, encoderContext);
     }
     
@@ -79,9 +79,11 @@ public class JVSCodec implements Codec<JVS> {
     }
     
     /**
-     * Convert Jackson JsonNode to BSON Document
+     * Convert JVS object to BSON Document.
+     * When config is set to map id field, uses JVS getter to retrieve the computed id value.
      */
-    private BsonDocument jsonNodeToBson(JsonNode node) {
+    private BsonDocument jsonNodeToBson(JVS jvs) {
+        JsonNode node = jvs.getJsonNode();
         if (!node.isObject()) {
             throw new IllegalArgumentException("Root JVS must be an object/document");
         }
@@ -89,31 +91,44 @@ public class JVSCodec implements Codec<JVS> {
         BsonDocument doc = new BsonDocument();
         ObjectNode objNode = (ObjectNode) node;
         
+        // Handle _id mapping from JVS field using getter (supports computed fields like id.id)
+        if (config.shouldMapIdField()) {
+            try {
+                JsonNode idNode = jvs.get(config.getJvsIdField());
+                if (idNode != null && !idNode.isNull()) {
+                    BsonValue idValue = jsonNodeToBsonValue(idNode);
+                    if (config.shouldConvertToObjectId() && idNode.isTextual()) {
+                        try {
+                            idValue = new BsonObjectId(new ObjectId(idNode.asText()));
+                        } catch (IllegalArgumentException e) {
+                            // Not a valid ObjectId, use as string
+                        }
+                    }
+                    doc.put("_id", idValue);
+                }
+            } catch (Exception e) {
+                // If getter fails, continue without _id (MongoDB will auto-generate)
+            }
+        }
+        
+        // Convert all fields from JSON to BSON
         Iterator<Map.Entry<String, JsonNode>> fields = objNode.fields();
         while (fields.hasNext()) {
             Map.Entry<String, JsonNode> entry = fields.next();
             String key = entry.getKey();
             JsonNode value = entry.getValue();
             
-            // Handle _id mapping from JVS field
-            if (config.shouldMapIdField() && key.equals(config.getJvsIdField())) {
-                BsonValue idValue = jsonNodeToBsonValue(value);
-                if (config.shouldConvertToObjectId() && value.isTextual()) {
-                    try {
-                        idValue = new BsonObjectId(new ObjectId(value.asText()));
-                    } catch (IllegalArgumentException e) {
-                        // Not a valid ObjectId, use as string
-                    }
+            // Skip _id field - it's handled separately
+            if (key.equals("_id")) {
+                // If _id exists directly in JSON and we're not mapping, use it
+                if (!config.shouldMapIdField()) {
+                    doc.put("_id", jsonNodeToBsonValue(value));
                 }
-                doc.put("_id", idValue);
-            } else if (!key.equals("_id")) {
-                doc.put(key, jsonNodeToBsonValue(value));
+                continue;
             }
-        }
-        
-        // Handle _id if present directly in JSON
-        if (objNode.has("_id")) {
-            doc.put("_id", jsonNodeToBsonValue(objNode.get("_id")));
+            
+            // Include all other fields (including id object with domain/value/etc)
+            doc.put(key, jsonNodeToBsonValue(value));
         }
         
         return doc;
@@ -183,24 +198,29 @@ public class JVSCodec implements Codec<JVS> {
     }
     
     /**
-     * Convert BSON Document to Jackson JsonNode
+     * Convert BSON Document to JVS object.
+     * Handles _id to id.id mapping using JVS's dot notation support.
      */
-    private JsonNode bsonToJsonNode(BsonDocument doc) {
-        ObjectNode objNode = JsonNodeFactory.instance.objectNode();
+    private JVS bsonToJVS(BsonDocument doc) {
+        JVS jvs = new JVS();
         
         for (Map.Entry<String, BsonValue> entry : doc.entrySet()) {
             String key = entry.getKey();
             BsonValue value = entry.getValue();
             
-            // Handle _id to JVS field mapping
-            if (key.equals("_id") && config.shouldMapIdField()) {
-                objNode.set(config.getJvsIdField(), bsonValueToJsonNode(value));
-            } else {
-                objNode.set(key, bsonValueToJsonNode(value));
+            try {
+                // Handle _id to JVS field mapping using JVS setter (supports dot notation)
+                if (key.equals("_id") && config.shouldMapIdField()) {
+                    jvs.set(config.getJvsIdField(), bsonValueToJsonNode(value));
+                } else {
+                    jvs.set(key, bsonValueToJsonNode(value));
+                }
+            } catch (Exception e) {
+                // If setting fails, skip this field
             }
         }
         
-        return objNode;
+        return jvs;
     }
     
     /**
