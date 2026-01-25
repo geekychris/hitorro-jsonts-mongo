@@ -207,10 +207,10 @@ public class JVSMongoIteratorTest {
     void testQueryWithFilter() {
         // Insert test data with scores
         List<JVS> testDocs = Arrays.asList(
-            new JVS().set("name", "Student1").set("score", 85),
-            new JVS().set("name", "Student2").set("score", 92),
-            new JVS().set("name", "Student3").set("score", 78),
-            new JVS().set("name", "Student4").set("score", 95)
+            new JVS().set("name", "Student1").set("score", 85).setId("testdomain","Student1"),
+            new JVS().set("name", "Student2").set("score", 92).setId("testdomain","Student1"),
+            new JVS().set("name", "Student3").set("score", 78).setId("testdomain","Student1"),
+            new JVS().set("name", "Student4").set("score", 95).setId("testdomain","Student1")
         );
         client.insertMany(TEST_COLLECTION, testDocs).block(Duration.ofSeconds(5));
         

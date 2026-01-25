@@ -21,6 +21,8 @@
  */
 package com.hitorro.mongo;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.hitorro.jsontypesystem.JVS;
 import com.hitorro.mongo.codec.JVSCodecConfig;
 import com.hitorro.mongo.codec.JVSCodecProvider;
@@ -41,6 +43,7 @@ import com.mongodb.reactivestreams.client.MongoDatabase;
 import org.bson.codecs.configuration.CodecRegistries;
 import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.conversions.Bson;
+import org.bson.types.ObjectId;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -214,6 +217,199 @@ public class JVSReactiveMongoClient implements AutoCloseable {
         return replaceOne(collectionName, Filters.eq("_id", id), replacement);
     }
     
+    /**
+     * Save a document - replaces if _id exists, inserts if not.
+     * This is the recommended method for the create-retrieve-modify-save workflow.
+     * 
+     * If the document has an _id field:
+     * - Attempts to replace the existing document with that _id
+     * - If no document with that _id exists, inserts it as a new document
+     * 
+     * If the document has no _id field:
+     * - MongoDB generates a new _id and inserts the document
+     * 
+     * @param collectionName Target collection
+     * @param document JVS document to save
+     * @return Mono containing the update result (which may be an insert or replace)
+     */
+    public Mono<UpdateResult> save(String collectionName, JVS document) {
+        // Extract _id from the document if it exists
+        Object id = extractId(document);
+        
+        if (id != null) {
+            // Document has an _id - remove it before replacing
+            // (MongoDB's _id is immutable and shouldn't be in the replacement)
+            JVS documentWithoutId = removeIdField(document);
+            
+            // Use replaceOne with upsert=true
+            ReplaceOptions options = new ReplaceOptions().upsert(true);
+            return Mono.from(getCollection(collectionName).replaceOne(
+                Filters.eq("_id", id), 
+                documentWithoutId, 
+                options
+            ));
+        } else {
+            // No _id - just insert (MongoDB will generate one)
+            return insertOne(collectionName, document)
+                .map(insertResult -> {
+                    // Convert InsertOneResult to UpdateResult for consistency
+                    // Upserted ID will be available in the response
+                    return UpdateResult.acknowledged(0, 0L, insertResult.getInsertedId());
+                });
+        }
+    }
+    
+    /**
+     * Save multiple documents using upsert logic.
+     * Each document with an _id will replace the existing document or insert if not found.
+     * Documents without _id will be inserted with generated IDs.
+     * 
+     * Note: This processes documents individually rather than as a true bulk operation
+     * to support the mixed insert/replace logic.
+     * 
+     * @param collectionName Target collection
+     * @param documents List of JVS documents to save
+     * @return Flux of update results
+     */
+    public Flux<UpdateResult> saveMany(String collectionName, List<JVS> documents) {
+        return Flux.fromIterable(documents)
+            .flatMap(document -> save(collectionName, document));
+    }
+    
+    /**
+     * Upsert a document using a custom filter.
+     * Updates the document if it matches the filter, inserts if no match found.
+     * 
+     * @param collectionName Target collection
+     * @param filter BSON filter to find existing document
+     * @param document Document to upsert (can be update operations or full replacement)
+     * @param useReplace If true, uses replaceOne; if false, uses updateOne
+     * @return Mono containing the update result
+     */
+    public Mono<UpdateResult> upsert(String collectionName, Bson filter, JVS document, boolean useReplace) {
+        if (useReplace) {
+            ReplaceOptions options = new ReplaceOptions().upsert(true);
+            return Mono.from(getCollection(collectionName).replaceOne(filter, document, options));
+        } else {
+            UpdateOptions options = new UpdateOptions().upsert(true);
+            Bson update = Updates.combine(JVSQueryBuilder.toUpdateBson(document));
+            return Mono.from(getCollection(collectionName).updateOne(filter, update, options));
+        }
+    }
+    
+    /**
+     * Upsert using JVS-based filter (convenience method).
+     * 
+     * @param collectionName Target collection
+     * @param filter JVS filter object
+     * @param document Document to upsert
+     * @return Mono containing the update result
+     */
+    public Mono<UpdateResult> upsert(String collectionName, JVS filter, JVS document) {
+        Bson filterBson = JVSQueryBuilder.fromJVS(filter);
+        return upsert(collectionName, filterBson, document, true);
+    }
+    
+    /**
+     * Extract _id from a JVS document.
+     * Returns null if no _id field exists.
+     * Properly handles ObjectId values stored as {$oid: "..."} format.
+     */
+    private Object extractId(JVS document) {
+        if (document == null) {
+            return null;
+        }
+        
+        // Check if codec config maps a JVS field to _id
+        if (codecConfig.shouldMapIdField()) {
+            String idFieldPath = codecConfig.getJvsIdField();
+            // Navigate the field path (e.g., "id.id")
+            String[] parts = idFieldPath.split("\\.");
+            JsonNode current = document.getJsonNode();
+            for (String part : parts) {
+                if (current == null || !current.has(part)) {
+                    return null;
+                }
+                current = current.get(part);
+            }
+            return current != null && !current.isNull() ? parseIdValue(current) : null;
+        } else {
+            // Check for direct _id field
+            JsonNode idNode = document.getJsonNode().get("_id");
+            if (idNode != null && !idNode.isNull()) {
+                return parseIdValue(idNode);
+            }
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Parse an ID value from a JsonNode, handling various formats:
+     * - String values
+     * - ObjectId format: {$oid: "..."}
+     * - Plain objects
+     */
+    private Object parseIdValue(JsonNode idNode) {
+        if (idNode == null || idNode.isNull()) {
+            return null;
+        }
+        
+        if (idNode.isTextual()) {
+            String textValue = idNode.asText();
+            // Try to parse as ObjectId if it looks like one (24 hex chars)
+            if (textValue.matches("[0-9a-fA-F]{24}")) {
+                try {
+                    return new org.bson.types.ObjectId(textValue);
+                } catch (Exception e) {
+                    return textValue;
+                }
+            }
+            return textValue;
+        } else if (idNode.isObject() && idNode.has("$oid")) {
+            // Extended JSON format for ObjectId
+            String oidValue = idNode.get("$oid").asText();
+            try {
+                return new org.bson.types.ObjectId(oidValue);
+            } catch (Exception e) {
+                return oidValue;
+            }
+        } else if (idNode.isNumber()) {
+            return idNode.asLong();
+        }
+        
+        // Fallback: return as is
+        return idNode;
+    }
+    
+    /**
+     * Remove the _id field from a JVS document.
+     * Creates a copy of the document without the _id field.
+     * MongoDB's _id field is immutable and must not be included in replace operations.
+     */
+    private JVS removeIdField(JVS document) {
+        if (document == null) {
+            return null;
+        }
+        
+        JsonNode originalNode = document.getJsonNode();
+        if (!(originalNode instanceof ObjectNode)) {
+            return document; // Not an object, can't remove _id
+        }
+        
+        // Clone the node
+        ObjectNode clonedNode = ((ObjectNode) originalNode).deepCopy();
+        
+        // Remove the _id field (direct field, not mapped field)
+        clonedNode.remove("_id");
+        
+        // If codec config maps a JVS field to _id, we keep that field
+        // (only remove the actual MongoDB _id field)
+        
+        // Create new JVS from the cloned node
+        return new JVS(clonedNode);
+    }
+
     /**
      * Delete a single document
      */

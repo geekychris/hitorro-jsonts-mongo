@@ -33,3 +33,6 @@ buildNumber.properties
 *.db
 *.mv.db
 *.trace.db
+
+# Docker
+docker-compose.override.yml

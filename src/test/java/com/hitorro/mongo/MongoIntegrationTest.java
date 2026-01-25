@@ -240,4 +240,190 @@ public class MongoIntegrationTest {
         })
         .verifyComplete();
     }
+    
+    @Test
+    @DisplayName("Should save document without _id (insert)")
+    void testSaveWithoutId() {
+        JVS doc = new JVS()
+            .set("name", "NewUser")
+            .set("email", "new@example.com");
+        
+        StepVerifier.create(
+            client.save(TEST_COLLECTION, doc)
+                .flatMap(result -> {
+                    assertNotNull(result.getUpsertedId());
+                    return client.findById(TEST_COLLECTION, result.getUpsertedId().asObjectId().getValue());
+                })
+        )
+        .assertNext(found -> {
+            assertEquals("NewUser", found.getString("name"));
+            assertEquals("new@example.com", found.getString("email"));
+        })
+        .verifyComplete();
+    }
+    
+    @Test
+    @DisplayName("Should save document with existing _id (replace)")
+    void testSaveWithExistingId() {
+        JVS original = new JVS()
+            .set("name", "Alice")
+            .set("age", 30);
+        
+        StepVerifier.create(
+            // First insert
+            client.insertOne(TEST_COLLECTION, original)
+                .flatMap(insertResult -> {
+                    // Retrieve the document
+                    return client.findById(TEST_COLLECTION, insertResult.getInsertedId())
+                        .flatMap(retrieved -> {
+                            // Modify it
+                            retrieved.set("age", 31);
+                            retrieved.set("email", "alice@example.com");
+                            // Save (should replace)
+                            return client.save(TEST_COLLECTION, retrieved);
+                        });
+                })
+                .flatMap(saveResult -> {
+                    // Verify only 1 document exists (not duplicated)
+                    return client.count(TEST_COLLECTION);
+                })
+        )
+        .assertNext(count -> {
+            assertEquals(1L, count, "Should have exactly 1 document (no duplicates)");
+        })
+        .verifyComplete();
+        
+        // Verify the modifications were saved
+        StepVerifier.create(client.findOne(TEST_COLLECTION, new JVS().set("name", "Alice")))
+            .assertNext(found -> {
+                assertEquals("Alice", found.getString("name"));
+                assertEquals(31, found.getLong("age"));
+                assertEquals("alice@example.com", found.getString("email"));
+            })
+            .verifyComplete();
+    }
+    
+    @Test
+    @DisplayName("Should handle full create-retrieve-modify-save workflow")
+    void testCreateRetrieveModifySaveWorkflow() {
+        // 1. Create a document
+        JVS original = new JVS()
+            .set("name", "Bob")
+            .set("status", "pending")
+            .set("score", 0);
+        
+        StepVerifier.create(
+            // Insert the document
+            client.insertOne(TEST_COLLECTION, original)
+                .flatMap(insertResult -> {
+                    Object docId = insertResult.getInsertedId();
+                    
+                    // 2. Retrieve it
+                    return client.findById(TEST_COLLECTION, docId)
+                        .flatMap(retrieved -> {
+                            // 3. Modify it
+                            retrieved.set("status", "approved");
+                            retrieved.set("score", 100);
+                            retrieved.set("approvedBy", "admin");
+                            
+                            // 4. Save it (should replace, not duplicate)
+                            return client.save(TEST_COLLECTION, retrieved)
+                                .then(Mono.just(docId));
+                        });
+                })
+                .flatMap(docId -> {
+                    // Verify count = 1 (no duplication)
+                    return client.count(TEST_COLLECTION)
+                        .flatMap(count -> {
+                            assertEquals(1L, count, "Should have exactly 1 document");
+                            // Retrieve and verify changes
+                            return client.findById(TEST_COLLECTION, docId);
+                        });
+                })
+        )
+        .assertNext(finalDoc -> {
+            assertEquals("Bob", finalDoc.getString("name"));
+            assertEquals("approved", finalDoc.getString("status"));
+            assertEquals(100, finalDoc.getLong("score"));
+            assertEquals("admin", finalDoc.getString("approvedBy"));
+        })
+        .verifyComplete();
+    }
+    
+    @Test
+    @DisplayName("Should save multiple times without creating duplicates")
+    void testMultipleSavesNoDuplicates() {
+        JVS doc = new JVS()
+            .set("name", "Counter")
+            .set("value", 1);
+        
+        StepVerifier.create(
+            // First save (insert)
+            client.save(TEST_COLLECTION, doc)
+                .flatMap(result1 -> {
+                    Object id = result1.getUpsertedId();
+                    return client.findById(TEST_COLLECTION, id)
+                        .flatMap(retrieved1 -> {
+                            // Modify and save again
+                            retrieved1.set("value", 2);
+                            return client.save(TEST_COLLECTION, retrieved1)
+                                .then(client.findById(TEST_COLLECTION, id));
+                        })
+                        .flatMap(retrieved2 -> {
+                            // Modify and save a third time
+                            retrieved2.set("value", 3);
+                            return client.save(TEST_COLLECTION, retrieved2)
+                                .then(client.count(TEST_COLLECTION));
+                        });
+                })
+        )
+        .assertNext(count -> {
+            assertEquals(1L, count, "Should still have exactly 1 document after multiple saves");
+        })
+        .verifyComplete();
+        
+        // Verify final value
+        StepVerifier.create(client.findOne(TEST_COLLECTION, new JVS().set("name", "Counter")))
+            .assertNext(finalDoc -> {
+                assertEquals(3, finalDoc.getLong("value"));
+            })
+            .verifyComplete();
+    }
+    
+    @Test
+    @DisplayName("Should save with manual _id without creating duplicates")
+    void testSaveWithManualId() {
+        String customId = "custom-id-12345";
+        
+        JVS doc1 = new JVS()
+            .set("_id", customId)
+            .set("name", "Manual ID Doc")
+            .set("version", 1);
+        
+        StepVerifier.create(
+            // First save with custom ID
+            client.save(TEST_COLLECTION, doc1)
+                .flatMap(result -> {
+                    // Modify and save again with same ID
+                    JVS doc2 = new JVS()
+                        .set("_id", customId)
+                        .set("name", "Manual ID Doc")
+                        .set("version", 2);
+                    return client.save(TEST_COLLECTION, doc2);
+                })
+                .flatMap(result -> client.count(TEST_COLLECTION))
+        )
+        .assertNext(count -> {
+            assertEquals(1L, count, "Should have exactly 1 document with custom ID");
+        })
+        .verifyComplete();
+        
+        // Verify it was updated, not duplicated
+        StepVerifier.create(client.findById(TEST_COLLECTION, customId))
+            .assertNext(found -> {
+                assertEquals(customId, found.getString("_id"));
+                assertEquals(2, found.getLong("version"));
+            })
+            .verifyComplete();
+    }
 }
