@@ -4,9 +4,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.hitorro</groupId>
-    <artifactId>hitorro-jsonts-mongo</artifactId>
-    <version>3.0.0</version>
+    <groupId>com.hitorro</groupId><artifactId>hitorro-jsonts-mongo</artifactId><version>3.0.1</version>
     <packaging>jar</packaging>
 
     <name>Hitorro JSON Type System MongoDB Integration</name>
@@ -18,13 +16,18 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
-        <hitorro.version>3.0.0</hitorro.version>
+        <hitorro.version>3.0.1</hitorro.version>
         <mongodb.version>5.2.1</mongodb.version>
         <reactor.version>3.6.11</reactor.version>
         <jackson.version>2.18.2</jackson.version>
     </properties>
 
     <dependencies>
+        <dependency>
+            <groupId>com.hitorro</groupId>
+            <artifactId>hitorro-streams</artifactId>
+            <version>3.0.1</version>
+        </dependency>
         <!-- Hitorro Dependencies -->
         <dependency>
             <groupId>com.hitorro</groupId>
