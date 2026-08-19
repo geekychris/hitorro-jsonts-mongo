@@ -165,4 +165,17 @@
             </plugin>
         </plugins>
     </build>
+
+    <distributionManagement>
+        <repository>
+            <id>hitorro-local</id>
+            <name>Hitorro Local Maven Repository</name>
+            <url>file://${hitorro.deploy.repo.path}</url>
+        </repository>
+        <snapshotRepository>
+            <id>hitorro-local</id>
+            <name>Hitorro Local Maven Repository (Snapshots)</name>
+            <url>file://${hitorro.deploy.repo.path}</url>
+        </snapshotRepository>
+    </distributionManagement>
 </project>
