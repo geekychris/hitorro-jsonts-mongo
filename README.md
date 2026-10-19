@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="Hitorro Jsonts Mongo logo" width="180">
+</p>
+
 # Hitorro JSON Type System - MongoDB Integration
 
 MongoDB integration for the Hitorro JSON Type System (JVS), providing seamless reactive MongoDB operations with automatic BSON mapping and query support.
