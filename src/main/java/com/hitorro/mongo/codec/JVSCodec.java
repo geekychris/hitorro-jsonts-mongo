@@ -21,10 +21,10 @@
  */
 package com.hitorro.mongo.codec;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.JsonNodeFactory;
+import tools.jackson.databind.node.ObjectNode;
 import com.hitorro.jsontypesystem.JVS;
 import org.bson.*;
 import org.bson.codecs.BsonDocumentCodec;
@@ -36,6 +36,7 @@ import org.bson.types.ObjectId;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.Map;
+import com.hitorro.util.json.JsonValues;
 
 /**
  * MongoDB Codec for JVS (JSON Value System) objects.
@@ -97,9 +98,9 @@ public class JVSCodec implements Codec<JVS> {
                 JsonNode idNode = jvs.get(config.getJvsIdField());
                 if (idNode != null && !idNode.isNull()) {
                     BsonValue idValue = jsonNodeToBsonValue(idNode);
-                    if (config.shouldConvertToObjectId() && idNode.isTextual()) {
+                    if (config.shouldConvertToObjectId() && idNode.isString()) {
                         try {
-                            idValue = new BsonObjectId(new ObjectId(idNode.asText()));
+                            idValue = new BsonObjectId(new ObjectId(JsonValues.asText(idNode)));
                         } catch (IllegalArgumentException e) {
                             // Not a valid ObjectId, use as string
                         }
@@ -112,7 +113,7 @@ public class JVSCodec implements Codec<JVS> {
         }
         
         // Convert all fields from JSON to BSON
-        Iterator<Map.Entry<String, JsonNode>> fields = objNode.fields();
+        Iterator<Map.Entry<String, JsonNode>> fields = objNode.properties().iterator();
         while (fields.hasNext()) {
             Map.Entry<String, JsonNode> entry = fields.next();
             String key = entry.getKey();
@@ -143,23 +144,23 @@ public class JVSCodec implements Codec<JVS> {
         }
         
         if (node.isBoolean()) {
-            return new BsonBoolean(node.asBoolean());
+            return new BsonBoolean(JsonValues.asBoolean(node));
         }
         
         if (node.isInt()) {
-            return new BsonInt32(node.asInt());
+            return new BsonInt32(JsonValues.asInt(node));
         }
         
         if (node.isLong()) {
-            return new BsonInt64(node.asLong());
+            return new BsonInt64(JsonValues.asLong(node));
         }
         
         if (node.isDouble() || node.isFloat()) {
-            return new BsonDouble(node.asDouble());
+            return new BsonDouble(JsonValues.asDouble(node));
         }
         
-        if (node.isTextual()) {
-            String text = node.asText();
+        if (node.isString()) {
+            String text = JsonValues.asText(node);
             
             // Check for special BSON type markers if configured
             if (config.shouldDetectBsonTypes()) {
@@ -186,7 +187,7 @@ public class JVSCodec implements Codec<JVS> {
         
         if (node.isObject()) {
             BsonDocument doc = new BsonDocument();
-            Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
+            Iterator<Map.Entry<String, JsonNode>> fields = node.properties().iterator();
             while (fields.hasNext()) {
                 Map.Entry<String, JsonNode> entry = fields.next();
                 doc.put(entry.getKey(), jsonNodeToBsonValue(entry.getValue()));
@@ -233,11 +234,11 @@ public class JVSCodec implements Codec<JVS> {
             case INT32 -> JsonNodeFactory.instance.numberNode(value.asInt32().getValue());
             case INT64 -> JsonNodeFactory.instance.numberNode(value.asInt64().getValue());
             case DOUBLE -> JsonNodeFactory.instance.numberNode(value.asDouble().getValue());
-            case STRING -> JsonNodeFactory.instance.textNode(value.asString().getValue());
+            case STRING -> JsonNodeFactory.instance.stringNode(value.asString().getValue());
             case OBJECT_ID -> {
                 ObjectId oid = value.asObjectId().getValue();
                 if (config.shouldPreserveObjectIdAsString()) {
-                    yield JsonNodeFactory.instance.textNode(oid.toHexString());
+                    yield JsonNodeFactory.instance.stringNode(oid.toHexString());
                 } else {
                     // Store as object with type info
                     ObjectNode oidNode = JsonNodeFactory.instance.objectNode();
@@ -251,13 +252,13 @@ public class JVSCodec implements Codec<JVS> {
                     yield JsonNodeFactory.instance.numberNode(timestamp);
                 } else {
                     // Store as ISO string
-                    yield JsonNodeFactory.instance.textNode(new Date(timestamp).toString());
+                    yield JsonNodeFactory.instance.stringNode(new Date(timestamp).toString());
                 }
             }
             case BINARY -> {
                 byte[] data = value.asBinary().getData();
                 if (config.shouldPreserveBinaryAsBase64()) {
-                    yield JsonNodeFactory.instance.textNode(
+                    yield JsonNodeFactory.instance.stringNode(
                         java.util.Base64.getEncoder().encodeToString(data)
                     );
                 } else {
