@@ -478,6 +478,13 @@
             <version>5.11.4</version>
             <scope>test</scope>
         </dependency>
+        <!-- runs the JUnit 4 tests: with JUnit 5 on the test path surefire uses the JUnit Platform -->
+        <dependency>
+            <groupId>org.junit.vintage</groupId>
+            <artifactId>junit-vintage-engine</artifactId>
+            <version>5.11.4</version>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.assertj</groupId>
             <artifactId>assertj-core</artifactId>
