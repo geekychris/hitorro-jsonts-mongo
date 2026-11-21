@@ -21,9 +21,9 @@
  */
 package com.hitorro.mongo.query;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 import com.hitorro.jsontypesystem.JVS;
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.Updates;
@@ -33,6 +33,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import com.hitorro.util.json.JsonValues;
 
 /**
  * Utility for converting JVS query objects to MongoDB BSON filters.
@@ -70,7 +71,7 @@ public class JVSQueryBuilder {
     private static Bson buildFilter(ObjectNode queryNode) {
         List<Bson> filters = new ArrayList<>();
         
-        Iterator<Map.Entry<String, JsonNode>> fields = queryNode.fields();
+        Iterator<Map.Entry<String, JsonNode>> fields = queryNode.properties().iterator();
         while (fields.hasNext()) {
             Map.Entry<String, JsonNode> entry = fields.next();
             String key = entry.getKey();
@@ -110,7 +111,7 @@ public class JVSQueryBuilder {
      * Check if ObjectNode contains MongoDB operators
      */
     private static boolean hasOperators(ObjectNode node) {
-        Iterator<String> fieldNames = node.fieldNames();
+        Iterator<String> fieldNames = node.propertyNames().iterator();
         while (fieldNames.hasNext()) {
             if (fieldNames.next().startsWith("$")) {
                 return true;
@@ -125,7 +126,7 @@ public class JVSQueryBuilder {
     private static Bson buildFieldFilter(String field, ObjectNode operators) {
         List<Bson> fieldFilters = new ArrayList<>();
         
-        Iterator<Map.Entry<String, JsonNode>> ops = operators.fields();
+        Iterator<Map.Entry<String, JsonNode>> ops = operators.properties().iterator();
         while (ops.hasNext()) {
             Map.Entry<String, JsonNode> entry = ops.next();
             String operator = entry.getKey();
@@ -235,9 +236,9 @@ public class JVSQueryBuilder {
                 }
                 yield Filters.nin(field, values);
             }
-            case "$exists" -> Filters.exists(field, value.asBoolean());
-            case "$regex" -> Filters.regex(field, value.asText());
-            case "$type" -> Filters.type(field, value.asText());
+            case "$exists" -> Filters.exists(field, JsonValues.asBoolean(value));
+            case "$regex" -> Filters.regex(field, JsonValues.asText(value));
+            case "$type" -> Filters.type(field, JsonValues.asText(value));
             case "$all" -> {
                 if (!value.isArray()) {
                     throw new IllegalArgumentException("$all requires array value");
@@ -248,7 +249,7 @@ public class JVSQueryBuilder {
                 }
                 yield Filters.all(field, values);
             }
-            case "$size" -> Filters.size(field, value.asInt());
+            case "$size" -> Filters.size(field, JsonValues.asInt(value));
             default -> Filters.empty();
         };
     }
@@ -261,19 +262,19 @@ public class JVSQueryBuilder {
             return null;
         }
         if (node.isBoolean()) {
-            return node.asBoolean();
+            return JsonValues.asBoolean(node);
         }
         if (node.isInt()) {
-            return node.asInt();
+            return JsonValues.asInt(node);
         }
         if (node.isLong()) {
-            return node.asLong();
+            return JsonValues.asLong(node);
         }
         if (node.isDouble() || node.isFloat()) {
-            return node.asDouble();
+            return JsonValues.asDouble(node);
         }
-        if (node.isTextual()) {
-            return node.asText();
+        if (node.isString()) {
+            return JsonValues.asText(node);
         }
         if (node.isArray()) {
             List<Object> list = new ArrayList<>();
@@ -298,7 +299,7 @@ public class JVSQueryBuilder {
         }
         
         ObjectNode updateNode = (ObjectNode) node;
-        Iterator<Map.Entry<String, JsonNode>> fields = updateNode.fields();
+        Iterator<Map.Entry<String, JsonNode>> fields = updateNode.properties().iterator();
         
         while (fields.hasNext()) {
             Map.Entry<String, JsonNode> entry = fields.next();
@@ -308,7 +309,7 @@ public class JVSQueryBuilder {
             if (key.startsWith("$set.")) {
                 updates.add(Updates.set(key.substring(5), convertJsonNode(value)));
             } else if (key.startsWith("$inc.")) {
-                updates.add(Updates.inc(key.substring(5), value.asInt()));
+                updates.add(Updates.inc(key.substring(5), JsonValues.asInt(value)));
             } else if (key.startsWith("$push.")) {
                 updates.add(Updates.push(key.substring(5), convertJsonNode(value)));
             } else if (key.startsWith("$pull.")) {

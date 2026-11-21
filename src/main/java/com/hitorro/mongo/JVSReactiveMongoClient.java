@@ -21,8 +21,8 @@
  */
 package com.hitorro.mongo;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ObjectNode;
 import com.hitorro.jsontypesystem.JVS;
 import com.hitorro.mongo.codec.JVSCodecConfig;
 import com.hitorro.mongo.codec.JVSCodecProvider;
@@ -49,6 +49,7 @@ import reactor.core.publisher.Mono;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import com.hitorro.util.json.JsonValues;
 
 /**
  * Reactive MongoDB client for JVS objects.
@@ -355,8 +356,8 @@ public class JVSReactiveMongoClient implements AutoCloseable {
             return null;
         }
         
-        if (idNode.isTextual()) {
-            String textValue = idNode.asText();
+        if (idNode.isString()) {
+            String textValue = JsonValues.asText(idNode);
             // Try to parse as ObjectId if it looks like one (24 hex chars)
             if (textValue.matches("[0-9a-fA-F]{24}")) {
                 try {
@@ -368,14 +369,14 @@ public class JVSReactiveMongoClient implements AutoCloseable {
             return textValue;
         } else if (idNode.isObject() && idNode.has("$oid")) {
             // Extended JSON format for ObjectId
-            String oidValue = idNode.get("$oid").asText();
+            String oidValue = JsonValues.asText(idNode.get("$oid"));
             try {
                 return new org.bson.types.ObjectId(oidValue);
             } catch (Exception e) {
                 return oidValue;
             }
         } else if (idNode.isNumber()) {
-            return idNode.asLong();
+            return JsonValues.asLong(idNode);
         }
         
         // Fallback: return as is
